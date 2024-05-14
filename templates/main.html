@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<link rel="shortcut icon" href="{{ url_for('static', path='favicon.ico') }}"/>
+<link rel="stylesheet" type="text/css" href="{{ url_for('static', path='css/bootstrap/bootstrap.css') }}">
+<style>
+    .file {
+        display: flex;
+    }
+
+    .left {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .left img {
+        max-width: 100%;
+        max-height: 100%;
+    }
+
+    .right {
+        flex: 1;
+    }
+</style>
+<head>
+    <meta charset="UTF-8">
+    <title>合同识别</title>
+</head>
+<body>
+<div class="file">
+    <div class="left">
+        <!-- 图片示例 -->
+        <img src="{{ url_for('static', path='upload/logo.jpg') }}" alt="图片">
+    </div>
+
+    <div class="right">
+        <div class="right mb-3">
+            <button class="btn btn-info" type="button" id="saveBtn">保存Excel</button>
+            <button class="btn btn-info" type="button" id="saveDBBtn">数据入库</button>
+            <button class="btn btn-primary mr-2" type="button" id="upload_pdf">上传 PDF</button>
+            <button class="btn btn-primary" type="button" id="upload_img">上传图片</button>
+            <input type="file" multiple/>
+        </div>
+        <table id="table"></table>
+        {#底部注释说明#}
+        <div class="list-group" style="margin-top: 10px">
+            <ul class="list-group-item">
+                <h5 class="list-group-item-heading">说明:</h5>
+                <span class="list-group-item-text">1.信息抽取结果支持二次编辑，点击页面编辑即可</span><br>
+                <span class="list-group-item-text">2.数据入库：指将数据存入后台数据库，为后续的发票合同信息关系做准备</span><br>
+                <span class="list-group-item-text">3.数据入库规则1：付款单号、合同编号、合同金额为入库三要素，必填。如果没有则手工自行添加。其它内容选填。</span><br>
+                <span class="list-group-item-text">4.数据入库规则2：相同付款单号、合同编号的记录只能有一条，如果多次重复入库存只会更新原有数据，不会重复新增。</span><br>
+            </ul>
+        </div>
+        {#底部注释说明#}
+    </div>
+</div>
+
+<!-- 模态框代码 -->
+<div class="modal" tabindex="-1" role="dialog" id="waitModal">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <p>正在处理，请稍候...</p>
+                <div class="spinner-border" role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+<script src="{{ url_for('static', path='js/jquery-3.5.1.min.js') }}"></script>
+<script charset="UTF-8" type="text/javascript" src="{{ url_for('static', path='js/bootstrap/bootstrap.js') }}"></script>
+<!-- Latest compiled and minified CSS -->
+<link rel="stylesheet" href="{{ url_for('static', path='css/bootstrap/bootstrap-table.min.css') }}">
+
+<!-- Latest compiled and minified JavaScript -->
+<script src="{{ url_for('static', path='js/bootstrap/bootstrap-table.min.js') }}"></script>
+<!-- Latest compiled and minified Locales -->
+<script src="{{ url_for('static', path='js/bootstrap/bootstrap-table-zh-CN.min.js') }}"></script>
+
+<!--导出EXCEL-->
+<script src="static/js/xlsx/xlsx.core.min.js"></script>
+<script>
+    //EXCLE 导出功能
+    var checkTime = function (i) {
+        if (i < 10) {
+            i = "0" + i;
+        }
+        return i;
+    }
+    var showtime = function () { //返回当前时间
+        var nowdate = new Date();
+        var year = nowdate.getFullYear(),
+            month = nowdate.getMonth() + 1,
+            date = nowdate.getDate(),
+            day = nowdate.getDay(),
+            week = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"],
+            h = nowdate.getHours(),
+            m = nowdate.getMinutes(),
+            s = nowdate.getSeconds(),
+            h = checkTime(h),
+            m = checkTime(m),
+            s = checkTime(s);
+        // return year + "年" + month + "月" + date + "日" + week[day] + " " + h + ":" + m + ":" + s;
+        return year + "-" + month + "-" + date + "-" + h + "-" + m + "-" + s;
+    }
+
+    var to_excle = function (data) {
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "data");  // 添加sheet
+        XLSX.writeFile(workbook, '/contract' + showtime() + '.xlsx'); // 导出EXCLE
+    }
+    data = [
+        {Name: 'John Doe', Age: 33, City: 'New York'},
+        {Name: 'Bob Smith', Age: 45, City: 'Los Angeles'},
+        {Name: 'Mary Johnson', Age: 28, City: 'Chicago'}
+    ]
+    // to_excle(data = data)
+</script>
+<!--导出EXCEL-->
+
+<script>
+    $(function () {
+        $('#table').bootstrapTable({
+            columns: [{
+                field: 'ind',
+                title: '序号'
+            }, {
+                field: 'key',
+                title: '标签'
+            }, {
+                field: 'value',
+                title: '内容'
+            }, {
+                field: 'confidence',
+                title: '置信度'
+            }, {
+                field: '操作',
+                title: '操作',
+                formatter: function (value, row, index) {
+                    return '<button class="btn btn-danger btn-sm" onclick="delRow(' + index + ')">删除</button>' +
+                        '<button class="btn btn-info btn-sm ml-1" onclick="showImage(' + index + ')">查看</button>';
+                }
+            }, {
+                field: 'page',
+                title: '图片地址',
+                visible: false
+            }, {
+                field: 'flor',
+                title: '文件夹',
+                visible: false
+            }],
+            data: [],
+            onClickCell: function (field, value, row, $element) {
+                $element.attr('contenteditable', true);
+                //元素失去焦点事件
+                $element.blur(function () {
+                    //单元格修改后的的值
+                    let tdValue = $element.text();
+                    let index = $element.parent().data('index');
+
+                    //updateCell更新某单元格数据
+                    $("#table").bootstrapTable('updateCell', {
+                        index: index,       //行索引
+                        field: field,       //列名
+                        value: tdValue      //cell值
+                    })
+
+                    //console.log(field);
+                    //console.log(tdValue);
+                    //console.log(row);
+                })
+            }
+        });
+
+    });
+
+    function delRow(index) {
+        $('#table').bootstrapTable('remove', {
+            field: 'ind',
+            values: [$('#table').bootstrapTable('getData')[index].ind]
+        });
+    }
+
+    $("#upload_pdf").click(function () {
+        settingLogo();
+
+        var fileList = $('input[type=file]').prop('files');
+        if (fileList.length > 1) {
+            alert("暂不支持多个PDF文件的上传！！");
+            return
+        }
+        file = fileList[0]
+        if (!file || file.type !== 'application/pdf') {
+            alert("请上传一个PDF文件");
+            return
+        }
+        var formData = new FormData();
+        formData.append('file', file);
+        // 显示等待窗口
+        toggleWaitModal(true);
+        $.ajax({
+            url: '/upload',
+            type: 'POST',
+            contentType: false,
+            processData: false,
+            data: formData,
+            success: function (data) {
+                // 上传成功后的响应处理
+                {#console.log(data)#}
+                if (data.data.length == 0) {
+                    alert('未抽取到任何结果！！')
+                } else {
+                    addFKDH(data)  //手动添加付款单号，方便用户录入
+                    //var result = JSON.parse(data); // 解析返回的数据
+                    $('#table').bootstrapTable('load', data.data); // 将数据添加到表格中
+
+                    $('#table').bootstrapTable('refresh'); // 刷新表格显示
+                    // 显示等待窗口
+                }
+
+                toggleWaitModal(false);
+            },
+            error: function (XMLHttpRequest, textStatus, errorThrown) {
+                alert("上传失败，请重新尝试");
+            }
+        });
+    });
+
+    // 显示或隐藏模态框
+    function toggleWaitModal(show) {
+        if (show) {
+            $('#waitModal').modal({
+                backdrop: 'static',  // 禁止点击背景关闭模态框
+                keyboard: false,  // 禁止使用键盘关闭模态框
+            });
+        } else {
+            $('#waitModal').modal('hide');
+        }
+    }
+
+    function showImage(index) {
+        var data = $('#table').bootstrapTable('getData')[index].page;
+        var base64string = "data:image/png;base64," + data;
+        var img = $('.left img');
+        img.attr('src', base64string);
+    }
+
+    $("#upload_img").click(function () {
+        settingLogo();
+        var files = $('input[type=file]').prop('files');
+        if (files.length === 0) {
+            alert("请先选择要上传的文件");
+            return
+        }
+        var checkResult = true;
+        for (var i = 0; i < files.length; i++) {
+            if (files[i].type !== "image/jpeg") {
+                checkResult = false;
+                break;
+            }
+        }
+        if (!checkResult) {
+            alert("请上传'jpg', 'bmp', 'png', 'jpeg', 'rgb', 'tif', 'tiff', 'gif'格式的图片！");
+            return;
+        }
+        var formData = new FormData();
+        for (var i = 0; i < files.length; i++) {
+            formData.append("file", files[i]);
+        }
+        // 显示等待窗口
+        toggleWaitModal(true);
+        $.ajax({
+            url: "/upload",
+            type: "POST",
+            contentType: false,
+            processData: false,
+            data: formData,
+            success: function (data) {
+                // 上传成功后的响应处理
+                //console.log(data)
+                if (data.data.length == 0) {
+                    alert('未抽取到任何结果！！')
+                } else {
+                    addFKDH(data)  //手动添加付款单号，方便用户录入
+                    //var result = JSON.parse(data); // 解析返回的数据
+                    $('#table').bootstrapTable('load', data.data); // 将数据添加到表格中
+                    //[{},{},{}]
+                    $('#table').bootstrapTable('refresh'); // 刷新表格显示
+                    if (data.data.lenth > 0) {
+                        showImage(0);
+                    }
+                }
+                // 显示等待窗口
+                toggleWaitModal(false);
+            },
+            error: function (XMLHttpRequest, textStatus, errorThrown) {
+                console.log(typeof XMLHttpRequest.status)
+                if (XMLHttpRequest.status >= 500) {
+                    alert("上传失败，与管理员联系！！");
+                }
+                if (XMLHttpRequest.status >= 400 && XMLHttpRequest.status <= 499) {
+                    var err_detail = JSON.parse(XMLHttpRequest.responseText)  //拿到后端发回的JSON字符串进行JSON解析
+                    alert(err_detail.detail);
+                }
+
+                toggleWaitModal(false);
+            }
+        });
+    });
+
+    $('#saveBtn').click(function () {
+        let data = [];
+        let rows = $('#table').bootstrapTable('getData');
+        for (let i = 0; i < rows.length; i++) {
+            data.push({ind: rows[i].ind, key: rows[i].key, value: rows[i].value});
+        }
+        to_excle(data)
+    });
+
+    function settingLogo() {
+        $.ajax({
+            url: "/get_logo",
+            type: "GET",
+            contentType: false,
+            processData: false,
+            async: false,
+            success: function (data) {
+                var img = $('.left img');
+                img.attr('src', data);
+            },
+            error: function (XMLHttpRequest, textStatus, errorThrown) {
+                alert("上传失败，请重新尝试");
+            }
+        });
+    }
+
+    function addFKDH(data) {
+        //这里增加付款单号
+        b = JSON.parse(JSON.stringify(data.data[0]))   //深拷贝,拿到第1个数据
+        // 初始化数据
+        b.key = '付款单号'
+        b.value = ''
+        b.confidence = ''
+        b.ind = 0
+        //插入到第一行
+        data.data.unshift(b)
+    }
+
+    $('#saveDBBtn').click(function () {
+        /**
+         * 将数据保存入库存
+         *
+         * 测试用的数据  test_data
+         test_data = [
+         {ind: 1, key: '付款单号', value: 'Fk21312300099114'},
+         {ind: 2, key: '合同编号', value: 'Y201-123-012-001'},
+         {ind: 3, key: '合同金额', value: '46388212.92'},
+         {ind: 4, key: '甲方', value: '辽河石油勘探局有限公司'},
+         {ind: 5, key: '乙方', value: '中国石油天然气股份有限公司润滑油分公司'},
+         ]
+         **/
+            // 1 拿到表格里的所有数据
+        let datas = getTableData()
+        data = datas.data
+        obj_data = datas.obj_data
+        // 2 进行检验
+        v_reslut = validate_data(obj_data)
+        if (v_reslut['flag']) {
+            // 3  组装数据发往后台
+            ds = {"contract_json": data}
+            msg = "请再次对入库三要素进行确认：\n " +
+                '付款单号：' + obj_data['付款单号'] + "\n " +
+                '合同编号：' + obj_data['合同编号'] + "\n " +
+                '合同金额：' + obj_data['合同金额'];
+            if (confirm(msg)) {
+                // 显示等待窗口
+                toggleWaitModal(true);
+                $.ajax({
+                    url: "/contract/save",
+                    type: "POST",
+                    contentType: 'application/json',
+                    processData: false,
+                    data: JSON.stringify(ds),
+                    success: function (data) {
+                        // 上传成功后的响应处理
+                        //console.log(data)
+                        alert(data.msg)
+                        // 显示等待窗口
+                        toggleWaitModal(false);
+                    },
+                    error: function (XMLHttpRequest, textStatus, errorThrown) {
+                        alert("保存失败，请与管理员联系！！");
+                        console.log(XMLHttpRequest.status)
+                        toggleWaitModal(false);
+                    }
+                });
+            }
+
+        } else {
+            alert(v_reslut['msg'])
+        }
+
+    })
+
+
+    function getTableData() {
+        // 获取TABLE数据
+        let data = [];
+        let obj_data = {}
+        let rows = $('#table').bootstrapTable('getData'); // 拿到TABLE里所有的行数据
+        for (let i = 0; i < rows.length; i++) {  // 对行数据进行遍历
+            data.push({ind: rows[i].ind, key: rows[i].key, value: rows[i].value});  // 导出EXCEL时使用
+            obj_data[rows[i].key.trim()] = rows[i].value.trim()  // 数据校验时使用 相同的key被合并，值只保留最后一个
+        }
+        return {'data': data, 'obj_data': obj_data}
+    }
+
+    function validate_data(obj_data) {
+        let msg = ''
+        let flag = false  // true 通过  false 不通过
+        // 对三个必输字段的校验,key和value都不允许为空
+        if (obj_data['付款单号'] && obj_data['合同编号'] && obj_data['合同金额']) {
+            flag = true
+        } else {
+            flag = false
+            msg = '入库校验失败！数据入库规则如下：\n 1、必须有【付款单号:合同编号:合同金额】三项‘标签’。\n 2、三项‘标签’对应的‘内容’均不能为空！！'
+            return {'flag': flag, 'msg': msg}
+        }
+        //校验合同编号的值是否是数据
+        if (isNumber(obj_data['合同金额'])) {
+            flag = true
+        } else {
+            flag = false
+            msg = '合同金额格式不对：只能是由阿拉伯数字+小数点组成的标准格式，请修改！'
+            return {'flag': flag, 'msg': msg}
+        }
+        return {'flag': flag, 'msg': msg}
+
+    }
+
+    function isNumber(str) {
+        /**
+         * 判断字符串是否是数字
+         * **/
+        flag = false
+        let n = Number(str);
+        if (!isNaN(n)) {
+            flag = true  // 是数据
+        }
+        return flag
+    }
+
+</script>
+
+
+</html>
